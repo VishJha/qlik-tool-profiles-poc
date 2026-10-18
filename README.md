@@ -1,99 +1,169 @@
-# Qlik Tool Profiles + Skills: Proof of Concept
+# Tool Profiles and Skills for the Qlik MCP Server
 
-A working MCP server that shows how to stop handing an LLM 100+ tools at once. Each session starts with a small, shared, read-only **Core** set. When a task needs more, the model loads a **tested skill** (or, if none fits, a **task-based profile**), and the server swaps the tool list mid-session after checking the user's **entitlements**.
+A working proof of concept that accompanies the presentation *Tool Profiles and Skills for the Qlik MCP Server*. If you have seen the slides, this repo lets you run the solution yourself and see where each idea lives in the code.
 
-The Qlik backend is mocked. The design is real: protocol, sessions, tool swapping, permission checks, write confirmation and governance checks all run.
+---
 
-## Run it
+The Qlik MCP server exposes 100+ tools. An AI choosing from that many tools picks the wrong one more often, and permissions alone don't fix it, because a power user is allowed almost everything. This PoC shows a different approach: the AI starts with a small set of read-only tools, loads a **tested skill** when a task needs more, falls back to a **task-based profile** when no skill fits, and never sees the full catalog. The server filters every tool list by the user's existing permissions, checks every call again, and holds any change to data until the user approves it.
 
-Requires **Python 3.10 or newer** (tested on 3.13 and on 3.15 on macOS).
+---
+
+## Quick start (about 5 minutes)
+
+**Requirements:** Python 3.10 or newer. Tested on macOS with Python 3.13 and 3.15.
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+git clone https://github.com/VishJha/qlik-tool-profiles-poc.git
+cd qlik-tool-profiles-poc
+python3 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-
-python demo_client.py story --view   # the 2-minute demo: one user, every path, ending in success
-python demo_client.py --view   # all five scenes, live in the browser
-python demo_client.py          # same four scenes in the terminal (or: python demo_client.py 2)
-python validate.py             # governance checks pass
-python validate.py --broken    # ...and catch real-world mistakes
 ```
 
-> **macOS note:** the `python3` that ships with macOS is 3.9, and pip will report *"No matching distribution found for fastmcp"*. Install a newer Python from [python.org](https://www.python.org/downloads/) or with `brew install python@3.12`, then create the venv with that version (e.g. `python3.12 -m venv .venv`).
+**Run the 2-minute demo** (opens your browser):
 
-### The live view
+```bash
+python demo_client.py story --view
+```
 
-`--view` serves a local page at `http://localhost:8765` and streams every event from the real run into it:
+Add `--step` to advance one step at a time by pressing Enter, which is useful when you want to explain as you go.
 
-- **Left: the decision graph.** One graph for the whole design. Circles are what the user sees, squares are the model's choices, hexagons are checks the server enforces. Each scene lights its own path in green; blocked steps turn red.
-- **Right: the conversation**, with a meter of which tools the model can currently see (newly loaded tools are highlighted).
-- **Bottom right: the server's decisions** (feasibility, entitlement filter, tool swap, permission re-check, held writes, token checks).
+**No install at all?** Double-click `viewer/index.html`. It replays a recorded run of every scenario, with play, pause, step and scene buttons.
 
-Options: `--step` advances one step each time you press Enter (good for narrating a recording); `DEMO_PACE=5 python demo_client.py --view` slows it down further (seconds per step; default 3.2), and `DEMO_PACE=1.5` speeds it up.
+> **macOS note:** the `python3` that ships with macOS is 3.9, and pip will report *"No matching distribution found for fastmcp."* Install a newer Python from [python.org](https://www.python.org/downloads/) or with `brew install python@3.12`, then create the environment with it (for example `python3.12 -m venv .venv`).
 
-Every run is saved to `viewer/last_run.js`. **Double-click `viewer/index.html` to replay it offline** with play, pause, step, speed and scene buttons. The repo includes a recorded run, so the replay works before you install anything.
+---
 
-## The 2-minute story
+## What you will see
 
-`python demo_client.py story --view` follows one user, Rachelle, through a single session that touches every path and ends in success:
+The browser shows three panels:
 
-1. **Sign in:** she sees 11 of 25 tools (Core plus the loaders).
-2. **"Can you look into sales?"** The request is vague, so the AI asks one clarifying question.
-3. **"Why did North revenue drop?"** The metric skill runs in **reduced** form: she can't run custom calculations, so it uses an existing chart and says the answer is limited.
-4. **"Reload the sales app."** **Stopped:** a required step needs reload permission and the task changes data, so nothing is attempted.
-5. **"Add a glossary term for ARR."** No skill fits, so it **falls back** to the Govern Data profile, with "delete data product" filtered out. The request is logged for review.
-6. **The write is held** as a preview until she says yes, then the term is created. **Success.**
-
-## What the demo shows
-
-| Scene | User | What happens |
-| --- | --- | --- |
-| 1 | Analyst | Signs in and sees 11 of 25 tools. Asks why North revenue dropped; the model loads `investigate_metric_change`, the list swaps, and the skill's guardrail (verify `North` vs `NORTH` before filtering) is followed. |
-| 2 | Analyst | No glossary skill exists, so the model falls back to the `govern_data` profile. The request is logged for skill review. The write is held as a preview; a made-up confirmation token is rejected; the real one executes. |
-| 3 | Junior viewer | The skill menu is empty for this user. Asking for a reload fails the feasibility check with a clear reason; reload tools were never visible. |
-| 4 | Developer | Runs `reload_and_verify`: preview, confirm, reload fails, and the log line is returned. |
-| 5 | Junior viewer | Asks why North revenue dropped. Sam has the skill's required tools but not its optional calculation step, so the skill runs in reduced form from an existing chart and says the answer is limited. |
-
-The model's *choices* are scripted so every run is identical; everything the *server* does in response is real.
-
-## How it maps to the proposal
-
-| Proposal section | Where it lives |
+| Panel | What it shows |
 | --- | --- |
-| Profiles (task-based, size-capped) | `config/catalog.yaml` → `profiles` |
-| Effective tools = (Core + active skill or profile) ∩ entitlements | `server.py` → `visible_tools`, `Enforcement.on_list_tools` |
-| Loader (menu + switch), feasibility check, mid-session swap | `server.py` → `load_skill`, `load_profile`, `swap_tools` (sends `notifications/tools/list_changed`) |
-| Skills constrain tools, order, guardrails, inputs, output | `config/catalog.yaml` → `skills` |
-| Required vs optional steps: full, reduced or blocked skill; read-only tasks fall back to a profile, data-changing tasks stop | `server.py` → `load_skill`; `optional`, `fallback`, `profile` in each skill |
-| Server enforces, LLM chooses | `Enforcement.on_call_tool`: per-call permission re-check, preview then `confirm_action` for writes |
-| Unmatched tasks (Level 2 to Level 3) | `load_profile` writes `logs/unmatched.jsonl` |
-| Governance (registry, naming, ownership, orphans, size cap) | `config/registry.yaml`, `validate.py` |
+| **Left: decision graph** | The path each request takes. Circles are what the user sees, squares are the AI's choices, hexagons are checks the server enforces. Green means passed, amber means limited, red means stopped. |
+| **Right: conversation** | The user's messages, the AI's tool calls and the server's replies, plus a meter of how many tools the AI can currently see. |
+| **Bottom right: server log** | Every decision the server makes: permission checks, tool swaps, held changes, approvals. |
 
-## Real vs mocked
+### The Demo Sceanrio
+
+One user, **Rachelle**, a business analyst who can read apps and edit the glossary but can't run custom calculations or reloads. In one session she touches every path:
+
+| # | Rachelle asks | What happens | Path |
+| --- | --- | --- | --- |
+| 1 | *(signs in)* | The AI sees 11 of 25 tools: Core tools plus the loaders. | Starting kit |
+| 2 | "Can you look into sales?" | Too vague, so the AI asks one clarifying question. | Clarify |
+| 3 | "Why did North revenue drop last month?" | A tested skill fits, but one optional step needs a permission she lacks. The skill runs in reduced form from an existing chart and says the answer is limited. | Reduced skill |
+| 4 | "Reload the sales app." | A required step needs reload permission and the task changes data, so it stops and explains. | Stop |
+| 5 | "Add a glossary term for ARR." | No skill fits, so it falls back to the Govern Data profile, with the delete tool filtered out. The request is logged for review. | Profile fallback |
+| 6 | "Yes, create it." | The change was held as a preview; after her approval it runs. | Approved change |
+
+### Other scenarios
+
+```bash
+python demo_client.py --view      # all five scenes in the browser
+python demo_client.py 3           # one scene in the terminal
+```
+
+| Scene | User | Shows |
+| --- | --- | --- |
+| 1 | Tom, analyst | A skill running with full access |
+| 2 | Tom, analyst | Profile fallback, a rejected fake approval, a confirmed change |
+| 3 | Sam, junior viewer | A blocked request: the reload tools are never visible |
+| 4 | Arjun, developer | A reload that fails, with the error line returned |
+| 5 | Sam, junior viewer | A skill running in reduced form |
+
+The AI's **choices are scripted** so every run is identical. Everything the **server** does in response is real.
+
+---
+
+## How the solution works
+
+### The building blocks
+
+| Piece | What it is |
+| --- | --- |
+| **Tool registry** | One list of every tool, with its owner, required permission, and whether it reads or changes data. |
+| **Core tools** | About eight read-only tools every user gets. The same for everyone. |
+| **Skills** | Tested recipes for common tasks: which tools, in what order, which checks, and what the answer looks like. Steps are marked required or optional. |
+| **Profiles** | Groups of related tools for one kind of work, used when no skill fits. A profile never grants access. |
+| **`load_skill` / `load_profile`** | Tools that list what's available to this user and, when called, swap the matching tools in. |
+| **Permissions** | The user's existing Qlik roles. Nothing new is created or stored per user. |
+
+### What happens, step by step
+
+1. **Before anyone signs in,** the server loads Qlik's configuration: the registry, Core list, profiles and skills.
+2. **At sign-in,** the server looks up the user's permissions once, builds their personal skill menu, and gives the AI the Core tools plus the loaders.
+3. **On each request,** the AI loads a skill (or a profile). The server checks permissions, swaps in only the tools the user may use, and tells the AI app the list changed. No reconnect is needed.
+4. **On every tool call,** the server checks permission again. Anything that changes data is held as a preview until the user approves it.
+5. **When the session ends,** nothing about the user is kept.
+
+### The fallback order
+
+1. **A tested skill fits, with full access:** run it. Most reliable.
+2. **A skill fits, but an optional step is missing:** run a reduced version and say what's limited.
+3. **A skill fits, but a required step is missing:** if the task only reads data, fall back to a profile; if it changes data, stop and explain.
+4. **No skill, and the request is vague:** ask one clarifying question.
+5. **No skill, but a profile fits:** load it, filtered to the user's permissions. Marked less certain and logged.
+6. **Nothing fits:** answer with read-only Core tools, or explain. Logged.
+
+The AI never falls back to the full catalog, and nothing can exceed the user's own permissions.
+
+---
+
+## Governance checks
+
+```bash
+python validate.py            # the real configuration passes
+python validate.py --broken   # adds real issues found in Qlik's published tool docs
+```
+
+The validator checks naming (`qlik_verb_object` with a fixed verb list), required metadata and owners, descriptions that contradict their names, references to tools that don't exist, profile size limits, and tools that sit in no profile. The `--broken` mode adds three real examples from Qlik's docs (a typo in a tool name, a name with two verbs, and a description that looks swapped) and shows each one being caught. In a real setup, this would run automatically on every change.
+
+---
+
+## Where each idea lives in the code
+
+| Idea | File |
+| --- | --- |
+| Tools, owners, permissions | `config/registry.yaml` |
+| Core list, profiles, skills (with required and optional steps) | `config/catalog.yaml` |
+| Demo users and their permissions | `config/users.yaml` |
+| Filtering by permission, loading, swapping, re-checks, approval for changes | `server.py` |
+| Canned Qlik responses | `mocks.py` |
+| The scripted scenarios and the live view server | `demo_client.py` |
+| Governance checks | `validate.py` |
+| The decision graph and replay | `viewer/index.html` |
+
+---
+
+## What is real and what is mocked
 
 | Real | Mocked |
 | --- | --- |
-| MCP server and protocol (via [FastMCP](https://gofastmcp.com)) | Qlik API responses (`mocks.py`) |
-| Session tool list, swap, `list_changed` | Users and entitlements (`config/users.yaml`, standing in for Qlik roles) |
-| Feasibility, permission re-check, preview/confirm | Sign-in (user chosen with `QLIK_USER`) |
-| Governance validator, unmatched-request log | The LLM (`demo_client.py` plays its role, so the demo is deterministic) |
-| Live view and replay (`viewer/index.html`, fed by `logs/trace.jsonl`) | |
+| The MCP server and protocol (built on [FastMCP](https://gofastmcp.com)) | Qlik's API responses (`mocks.py`) |
+| Per-session tool lists and mid-session swaps (`tools/list_changed`) | Users and permissions (`config/users.yaml`) |
+| Permission filtering, feasibility checks, per-call re-checks | Sign-in (the user is set by the demo) |
+| Holding changes until the user approves | The AI model (`demo_client.py` plays its role) |
+| Governance validator and the log of unmatched requests | |
 
-Because the backend sits behind one function (`mocks.respond`), this layer could run as a **gateway in front of Qlik's MCP server**: replace the mock with real calls and nothing in the profile/skill layer changes.
+Because the Qlik backend sits behind one function, this layer could run in front of Qlik's real MCP server: replace the mock with real calls and nothing in the profile and skill layer changes.
 
-## Prior art, and what this adds
+---
 
-The on-demand loading pattern is proven: [GitHub's MCP server](https://github.com/github/github-mcp-server) ships "dynamic toolsets" (`list_available_toolsets`, `enable_toolset`) and static `--toolsets`. FastMCP provides per-session visibility as plumbing. This PoC builds on that pattern and adds what Qlik needs:
+## Prior art
 
-- **Entitlement-aware loading:** the skill menu only lists skills the user can fully run, and loading checks feasibility first.
-- **Skills, not just tool groups:** each skill carries instructions, guardrails, required inputs and an output shape.
-- **Server-enforced write safety:** writes return a preview; only a matching token executes them.
-- **Governance as code:** naming, ownership, orphan, reference and description checks, runnable in CI.
-- **A feedback loop:** profile fallbacks are logged as candidates for new skills.
+On-demand tool loading is already proven: [GitHub's MCP server](https://github.com/github/github-mcp-server) offers "dynamic toolsets." This PoC builds on that pattern and adds what Qlik needs: loading that respects each user's permissions, tested skills with required and optional steps, server-enforced approval for changes, governance as code, and a log that turns unmatched requests into future skills.
 
-## Known limitations
+---
 
-- Session state is per server process, which matches stdio (one client per process). Over HTTP it would key on the `Mcp-Session-Id` header.
-- Clients must handle `notifications/tools/list_changed`; clients that do not would need to reconnect after a load.
-- Qlik's docs say new tools appear after re-authenticating. We assume this refers to catalog additions, not per-session swaps; to be confirmed.
-- No evals yet. Next step: run the same golden tasks with a real model against the full catalog, profiles, and skills, and compare task success and consistency.
+## Assumptions and open questions
+
+- **Mid-session tool swaps:** we assume the server can change a user's tools during a session. Qlik's docs suggest new tools currently appear only after signing in again, so this needs confirming.
+- **Tool-to-permission mapping:** each tool must be mapped to the Qlik permission it needs; only the tool owners can confirm this.
+- **App-level permissions:** access can differ by app, so the up-front filter is approximate and the per-call check remains the real safeguard.
+- **Client support:** AI apps that don't support the "tool list changed" signal would need to reconnect after loading a skill.
+- **Session state:** this PoC keeps state per server process, which fits a local connection. Over HTTP it would be keyed on the MCP session ID.
+
+## Next step
+
+The riskiest assumption is the core one: that a smaller set of tools and tested skills actually makes the AI more accurate and consistent on real Qlik tasks. The next step is to run the same set of realistic tasks with a real model three ways (full catalog, profiles, profiles plus skills) and compare task success and consistency.
