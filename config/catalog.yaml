@@ -1,0 +1,64 @@
+# Core, profiles and skills. Owned by Qlik, the same for every tenant and user.
+# Per-user differences come only from entitlements (users.yaml).
+
+core:
+  # One shared, read-only starting kit. Every session begins here.
+  - qlik_search
+  - qlik_describe_app
+  - qlik_get_fields
+  - qlik_list_sheets
+  - qlik_get_sheet_details
+  - qlik_get_field_values
+  - qlik_search_field_values
+  - qlik_get_chart_data
+
+profile_size_cap: 25
+
+profiles:
+  # Task-based. A starting set, not a fixed taxonomy (4 of the proposed 6 filled for the PoC).
+  explore_analyze:
+    description: Query apps, run ad-hoc calculations, apply and clear selections.
+    owner: analytics-engine
+    tools: [qlik_create_data_object, qlik_select_values, qlik_clear_selections]
+  script_reload:
+    description: Read and change load scripts, run reloads, inspect logs.
+    owner: data-load
+    tools: [qlik_get_script, qlik_update_script, qlik_start_app_reload, qlik_get_reload_status, qlik_get_reload_log]
+  govern_data:
+    description: Glossary terms, lineage and data products.
+    owner: data-governance
+    tools: [qlik_search_glossary_terms, qlik_create_glossary_term, qlik_get_lineage, qlik_delete_data_product]
+  build_apps:
+    description: Create sheets and add charts.
+    owner: analytics-authoring
+    tools: [qlik_create_sheet, qlik_add_chart]
+
+skills:
+  investigate_metric_change:
+    description: Explain why a measure (e.g. revenue) changed between two periods for a dimension value (e.g. a region).
+    owner: analytics-engine
+    tools: [qlik_search_field_values, qlik_create_data_object, qlik_get_chart_data]
+    optional: [qlik_create_data_object]                       # the skill can run without this step
+    fallback: {qlik_create_data_object: qlik_get_chart_data}  # what to use instead
+    profile: explore_analyze                                  # where to fall back if a required tool is missing
+    inputs: [app_id, measure, field, value, period_a, period_b]
+    instructions: |
+      1. Confirm the dimension value exists with qlik_search_field_values (e.g. North vs NORTH). Never filter on an unverified value.
+      2. Use qlik_create_data_object with set analysis (not selections) to compare period_a vs period_b.
+      3. Run a second data object broken down by product category to find the top drivers.
+      4. Qlik computes all numbers. Do not re-aggregate or estimate.
+      5. Read-only skill: never call write tools.
+    output: {measure: str, value: str, period_a: num, period_b: num, change_pct: num, top_drivers: list}
+
+  reload_and_verify:
+    description: Reload an app and verify it succeeded; on failure, return the log and a suggested fix.
+    owner: data-load
+    tools: [qlik_start_app_reload, qlik_get_reload_status, qlik_get_reload_log]
+    optional: []          # every step is required
+    profile: script_reload
+    inputs: [app_id]
+    instructions: |
+      1. Start the reload (a write: show the preview to the user and confirm before it runs).
+      2. Poll qlik_get_reload_status until it finishes.
+      3. On failure, fetch qlik_get_reload_log and summarise the error line.
+    output: {app_id: str, reload_id: str, status: str, error: "str (only on failure)"}

@@ -1,0 +1,168 @@
+# Tool registry: the single source of truth for every tool.
+# 22 mock tools stand in for Qlik's 100+. Names follow qlik_<verb>_<object>.
+# side_effect: read | write | destructive  (write/destructive need preview + confirm)
+
+tools:
+  # ---------- App discovery & metadata (Core) ----------
+  - name: qlik_search
+    description: Search Qlik resources (apps, datasets, glossaries) by name or content.
+    side_effect: read
+    permission: apps.read
+    owner: analytics-platform
+    status: ga
+    params: {query: string}
+  - name: qlik_describe_app
+    description: Get metadata for one app, including owner, fields and publishing status.
+    side_effect: read
+    permission: apps.read
+    owner: analytics-platform
+    status: ga
+    params: {app_id: string}
+  - name: qlik_get_fields
+    description: List the data fields available in an app.
+    side_effect: read
+    permission: apps.read
+    owner: analytics-platform
+    status: ga
+    params: {app_id: string}
+  - name: qlik_list_sheets
+    description: List all sheets in an app.
+    side_effect: read
+    permission: apps.read
+    owner: analytics-platform
+    status: ga
+    params: {app_id: string}
+  - name: qlik_get_sheet_details
+    description: Get the charts on one sheet and their types.
+    side_effect: read
+    permission: apps.read
+    owner: analytics-platform
+    status: ga
+    params: {app_id: string, sheet_id: string}
+  - name: qlik_get_field_values
+    description: Get distinct values of a low-cardinality field. Use before filtering.
+    side_effect: read
+    permission: apps.read
+    owner: analytics-platform
+    status: ga
+    params: {app_id: string, field: string}
+  - name: qlik_search_field_values
+    description: Search a field for specific values to confirm they exist before filtering.
+    side_effect: read
+    permission: apps.read
+    owner: analytics-platform
+    status: ga
+    params: {app_id: string, field: string, search: string}
+  - name: qlik_get_chart_data
+    description: Retrieve data from an existing chart.
+    side_effect: read
+    permission: apps.read
+    owner: analytics-platform
+    status: ga
+    params: {app_id: string, chart_id: string}
+
+  # ---------- Data exploration & selections ----------
+  - name: qlik_create_data_object
+    description: Run an ad-hoc calculation (dimensions, measures, set analysis). Qlik computes; never re-aggregate results.
+    side_effect: read
+    permission: apps.query
+    owner: analytics-engine
+    status: ga
+    params: {app_id: string, dimensions: string, measures: string}
+  - name: qlik_select_values
+    description: Apply a selection (filter) that affects all later queries in the session.
+    side_effect: read
+    permission: apps.query
+    owner: analytics-engine
+    status: ga
+    params: {app_id: string, field: string, values: string}
+  - name: qlik_clear_selections
+    description: Clear all selections, or those on one field.
+    side_effect: read
+    permission: apps.query
+    owner: analytics-engine
+    status: ga
+    params: {app_id: string}
+
+  # ---------- Script & reload ----------
+  - name: qlik_get_script
+    description: Get the current load script of an app.
+    side_effect: read
+    permission: script.read
+    owner: data-load
+    status: ga
+    params: {app_id: string}
+  - name: qlik_update_script
+    description: Replace the full load script of an app.
+    side_effect: write
+    permission: script.update
+    owner: data-load
+    status: ga
+    params: {app_id: string, script: string}
+  - name: qlik_start_app_reload
+    description: Start a reload of an app.
+    side_effect: write
+    permission: reload.run
+    owner: data-load
+    status: ga
+    params: {app_id: string}
+  - name: qlik_get_reload_status
+    description: Check the progress and final state of a reload.
+    side_effect: read
+    permission: reload.run
+    owner: data-load
+    status: ga
+    params: {reload_id: string}
+  - name: qlik_get_reload_log
+    description: Get the log of a reload for troubleshooting.
+    side_effect: read
+    permission: reload.run
+    owner: data-load
+    status: ga
+    params: {reload_id: string}
+
+  # ---------- Governance ----------
+  - name: qlik_search_glossary_terms
+    description: Search for terms in a business glossary.
+    side_effect: read
+    permission: glossary.read
+    owner: data-governance
+    status: ga
+    params: {glossary_id: string, query: string}
+  - name: qlik_create_glossary_term
+    description: Create a glossary term with a definition and tags.
+    side_effect: write
+    permission: glossary.write
+    owner: data-governance
+    status: ga
+    params: {glossary_id: string, term: string, definition: string}
+  - name: qlik_get_lineage
+    description: Get the upstream lineage of a dataset or app (one step back per call).
+    side_effect: read
+    permission: lineage.read
+    owner: data-governance
+    status: ga
+    params: {resource_id: string}
+  - name: qlik_delete_data_product
+    description: Permanently delete a data product and remove it from every space.
+    side_effect: destructive
+    permission: dataproducts.manage
+    owner: data-governance
+    status: ga
+    params: {data_product_id: string}
+
+  # ---------- Visualization & sheets ----------
+  - name: qlik_create_sheet
+    description: Create a new empty sheet in an app.
+    side_effect: write
+    permission: sheets.create
+    owner: analytics-authoring
+    status: ga
+    params: {app_id: string, title: string}
+  - name: qlik_add_chart
+    description: Add a chart (bar, line, KPI, table) to a sheet.
+    side_effect: write
+    permission: sheets.create
+    owner: analytics-authoring
+    status: ga
+    params: {app_id: string, sheet_id: string, chart_type: string, dimension: string, measure: string}

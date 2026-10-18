@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tool Profiles + Skills: Live View</title>
+<style>
+  :root {
+    --frame: #163d66; --frame-2: #0f2f52; --paper: #f7f4ec; --card: #fffdf8;
+    --ink: #22313f; --muted: #7f8a96; --line: #c9c3b4; --green: #3d8a57; --green-soft: #e3f0e6;
+    --red: #c0533d; --red-soft: #f6e2dc; --amber: #b7862b; --amber-soft: #f5ecd6; --chip: #ebe6da;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: radial-gradient(ellipse at top, var(--frame), var(--frame-2)); color: var(--ink);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+  .stage { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; padding: 14px 22px 12px; gap: 12px; }
+  header { text-align: center; color: #fff; }
+  header .kicker { font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: #9fc0e3; }
+  header h1 { margin: 2px 0 0; font-size: 22px; letter-spacing: .14em; text-transform: uppercase; font-weight: 800; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 16px; min-height: 0; }
+  .card { background: var(--paper); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); min-height: 0; display: flex; flex-direction: column; }
+  .card h2 { margin: 0; padding: 12px 16px 6px; font-size: 13px; font-weight: 600; color: #4a5866; }
+  .card h2 span { color: var(--muted); font-weight: 400; }
+  .graph { position: relative; flex: 1; min-height: 0; }
+  #svg { width: 100%; height: 100%; display: block; }
+  .legend { position: absolute; top: 4px; right: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; color: #4a5866; }
+  .legend div { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+  .right { display: grid; grid-template-rows: 1fr auto; gap: 12px; min-height: 0; }
+  .meter { margin: 0 16px 8px; padding: 8px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  .meter .top { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: #4a5866; }
+  .meter .top b { font-size: 18px; color: var(--ink); }
+  .bar { height: 6px; background: var(--chip); border-radius: 4px; margin: 6px 0; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--green); transition: width .5s ease; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 58px; overflow: hidden; }
+  .chip { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--chip); color: #55606c; padding: 1px 6px; border-radius: 4px; transition: background .4s; }
+  .chip.new { background: var(--green-soft); color: var(--green); font-weight: 600; }
+  .chip.meta { background: #e4e9f1; color: #4b5f7a; }
+  .chat { flex: 1; overflow-y: auto; padding: 4px 16px 14px; display: flex; flex-direction: column; gap: 7px; scroll-behavior: smooth; }
+  .msg { max-width: 92%; padding: 7px 10px; border-radius: 9px; font-size: 13px; animation: in .35s ease; }
+  .user { align-self: flex-end; background: var(--frame); color: #fff; border-bottom-right-radius: 2px; }
+  .model { align-self: flex-start; color: #5b6774; font-style: italic; padding: 2px 4px; }
+  .call { align-self: flex-start; background: var(--card); border: 1px solid var(--line); font: 12px ui-monospace, Menlo, monospace; color: #2f4a66; }
+  .res { align-self: flex-start; margin-left: 14px; font-size: 12px; color: var(--green); background: var(--green-soft); }
+  .res.bad { color: var(--red); background: var(--red-soft); }
+  .res.hold { color: var(--amber); background: var(--amber-soft); }
+  .answer { align-self: flex-start; border-left: 4px solid var(--green); background: var(--card); font-weight: 500; }
+  .answer.bad { border-left-color: var(--red); }
+  .log { max-height: 150px; }
+  .log .lines { padding: 2px 16px 12px; overflow-y: auto; font: 12px ui-monospace, Menlo, monospace; }
+  .log .lines div { padding: 2px 0; border-bottom: 1px dashed #e2dccd; animation: in .35s ease; }
+  .tag { display: inline-block; width: 44px; font-weight: 700; }
+  .tag.pass { color: var(--green); } .tag.fail { color: var(--red); } .tag.partial { color: var(--amber); }
+  footer { display: flex; align-items: center; justify-content: center; gap: 8px; color: #cfe0f2; font-size: 12px; }
+  footer button, footer select { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.25); border-radius: 6px; padding: 4px 10px; font: inherit; cursor: pointer; }
+  footer button:hover { background: rgba(255,255,255,.22); }
+  .live { background: var(--red); color: #fff; padding: 2px 8px; border-radius: 10px; font-weight: 700; letter-spacing: .08em; }
+  @keyframes in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* graph */
+  .edge { fill: none; stroke: var(--line); stroke-width: 1.4; transition: stroke .4s, stroke-width .4s; }
+  .edge.on { stroke: var(--green); stroke-width: 2.6; }
+  .edge.now { stroke-dasharray: 6 5; animation: flow .7s linear infinite; }
+  .elabel { font-size: 11px; fill: #9a9384; text-anchor: middle; }
+  .elabel.on { fill: var(--green); font-weight: 600; }
+  @keyframes flow { to { stroke-dashoffset: -11; } }
+  .node .shape { fill: var(--card); stroke: #a49d8c; stroke-width: 1.6; transition: all .35s; }
+  .node text { font-size: 13px; fill: #3c4752; text-anchor: middle; font-weight: 600; }
+  .node .sub { font-size: 10.5px; fill: var(--muted); font-weight: 400; }
+  .node.seen .shape { stroke: var(--green); stroke-width: 2.2; }
+  .node.now .shape { fill: var(--green-soft); stroke: var(--green); stroke-width: 3; }
+  .node.now .dot { opacity: 1; }
+  .node.fail .shape { fill: var(--red-soft); stroke: var(--red); stroke-width: 3; }
+  .node.partial .shape { fill: var(--amber-soft); stroke: var(--amber); stroke-width: 3; }
+  .node.partial .dot { fill: var(--amber); opacity: 1; }
+  .node .dot { fill: var(--green); opacity: 0; transition: opacity .3s; }
+  .node.fail .dot { fill: var(--red); opacity: 1; }
+  .pulse { fill: none; stroke: var(--green); stroke-width: 2; opacity: 0; }
+  .node.now .pulse { animation: pulse 1.2s ease-out infinite; }
+  @keyframes pulse { 0% { opacity: .7; r: 26; } 100% { opacity: 0; r: 40; } }
+  .empty { color: var(--muted); padding: 30px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <header>
+    <div class="kicker" id="kicker">Qlik MCP · Tool profiles + skills · proof of concept</div>
+    <h1 id="title">Waiting for the demo to start</h1>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Decision graph <span>· one graph, every scene lights its own path</span></h2>
+      <div class="graph">
+        <svg id="svg" viewBox="0 0 640 950" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="legend">
+          <div><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="#fffdf8" stroke="#a49d8c" stroke-width="1.6"/></svg>User sees</div>
+          <div><svg width="16" height="16"><rect x="2" y="2" width="12" height="12" rx="3" fill="#fffdf8" stroke="#a49d8c" stroke-width="1.6"/></svg>Model decides</div>
+          <div><svg width="16" height="16"><polygon points="8,1 14,4.5 14,11.5 8,15 2,11.5 2,4.5" fill="#fffdf8" stroke="#a49d8c" stroke-width="1.6"/></svg>Server enforces</div>
+          <div><svg width="16" height="16"><line x1="1" y1="8" x2="15" y2="8" stroke="#3d8a57" stroke-width="2.6"/></svg>Traversed path</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="right">
+      <section class="card">
+        <h2 id="who">Conversation <span>· what the user and model see</span></h2>
+        <div class="meter">
+          <div class="top"><span>Tools the model can see</span><span><b id="count">0</b> of <span id="total">22</span> Qlik tools · <span id="active">not connected</span></span></div>
+          <div class="bar"><i id="bar"></i></div>
+          <div class="chips" id="chips"></div>
+        </div>
+        <div class="chat" id="chat"></div>
+      </section>
+      <section class="card log">
+        <h2>Server <span>· decisions the LLM cannot skip</span></h2>
+        <div class="lines" id="log"></div>
+      </section>
+    </div>
+  </div>
+
+  <footer id="controls"></footer>
+</div>
+
+<script src="last_run.js" onerror="void 0"></script>
+<script>
+// ------------------------------------------------------------------ graph model
+const N = {
+  signin:        {x: 320, y: 46,  s: "hex",  t: "Sign in",            u: "Core tools + skill menu"},
+  request:       {x: 320, y: 128, s: "circ", t: "User request"},
+  pick:          {x: 320, y: 212, s: "sq",   t: "Pick path",          u: "skill, profile or Core"},
+  load_skill:    {x: 190, y: 300, s: "sq",   t: "load_skill"},
+  load_profile:  {x: 460, y: 300, s: "sq",   t: "load_profile",       u: "fallback"},
+  feasibility:   {x: 190, y: 388, s: "hex",  t: "Feasibility check"},
+  log_unmatched: {x: 460, y: 388, s: "hex",  t: "Log for review",     u: "candidate skill"},
+  blocked:       {x: 62,  y: 388, s: "circ", t: "Explain limit"},
+  entitle:       {x: 320, y: 470, s: "hex",  t: "Entitlement filter"},
+  swap:          {x: 320, y: 550, s: "hex",  t: "Swap tool list",     u: "list_changed"},
+  call:          {x: 320, y: 632, s: "sq",   t: "Call a tool"},
+  recheck:       {x: 320, y: 714, s: "hex",  t: "Permission re-check"},
+  execute:       {x: 180, y: 796, s: "hex",  t: "Execute",            u: "Qlik API"},
+  hold:          {x: 470, y: 796, s: "hex",  t: "Hold write",         u: "preview"},
+  confirm:       {x: 470, y: 878, s: "circ", t: "User confirms"},
+  token:         {x: 320, y: 878, s: "hex",  t: "Token check"},
+  answer:        {x: 62,  y: 878, s: "circ", t: "Answer"},
+};
+// [from, to, label, custom path?, label x, label y]
+const E = [
+  ["signin", "request"], ["request", "pick"],
+  ["pick", "load_skill", "skill fits", null, 222, 268], ["pick", "load_profile", "no skill", null, 420, 268],
+  ["pick", "call", "Core tool", "M 346 216 C 610 260, 610 600, 346 628", 586, 430],
+  ["load_skill", "feasibility"], ["feasibility", "entitle", "pass", null, 278, 414], ["feasibility", "blocked", "fail", null, 126, 380],
+  ["load_profile", "log_unmatched"], ["log_unmatched", "entitle"],
+  ["entitle", "swap"], ["swap", "call"], ["call", "recheck"],
+  ["recheck", "execute", "read", null, 236, 748], ["recheck", "hold", "write", null, 404, 748],
+  ["recheck", "pick", "not loaded", "M 294 712 C 120 660, 110 270, 294 214", 132, 560],
+  ["hold", "confirm", "preview shown", null, 548, 844], ["confirm", "token", "yes", null, 395, 870], ["token", "execute", "valid", null, 234, 858],
+  ["execute", "call", "next step", "M 168 772 C 150 700, 210 640, 292 634", 160, 690],
+  ["execute", "answer", "done", null, 106, 846],
+];
+const R = 25, svg = document.getElementById("svg"), NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs, parent = svg) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+const defs = el("defs", {});
+for (const [id, c] of [["arrow", "#c9c3b4"], ["arrowOn", "#3d8a57"]]) {
+  const m = el("marker", {id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse"}, defs);
+  el("path", {d: "M0,0 L10,5 L0,10 z", fill: c}, m);
+}
+const edgeEls = {};
+for (const [a, b, label, d, lx, ly] of E) {
+  let path = d;
+  if (!path) {
+    const A = N[a], B = N[b], dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy);
+    const ux = dx / L, uy = dy / L;
+    // edges leaving straight down start below the node's label, so lines never cross text
+    const start = Math.abs(ux) < 0.3 && uy > 0 ? R + (A.u ? 35 : 23) : R;
+    path = `M ${A.x + ux * start} ${A.y + uy * start} L ${B.x - ux * (R + 3)} ${B.y - uy * (R + 3)}`;
+  }
+  const p = el("path", {d: path, class: "edge", "marker-end": "url(#arrow)"});
+  let t = null;
+  if (label) {
+    const x = lx ?? (N[a].x + N[b].x) / 2 + 6, y = ly ?? (N[a].y + N[b].y) / 2 - 4;
+    t = el("text", {x, y, class: "elabel"}); t.textContent = label;
+  }
+  edgeEls[a + ">" + b] = {p, t};
+}
+const nodeEls = {};
+for (const [id, n] of Object.entries(N)) {
+  const g = el("g", {class: "node", transform: `translate(${n.x},${n.y})`});
+  el("circle", {class: "pulse", r: 26}, g);
+  if (n.s === "circ") el("circle", {class: "shape", r: R}, g);
+  else if (n.s === "sq") el("rect", {class: "shape", x: -R, y: -R + 3, width: 2 * R, height: 2 * R - 6, rx: 8}, g);
+  else el("polygon", {class: "shape", points: [0,1,2,3,4,5].map(i => { const a = Math.PI / 3 * i - Math.PI / 2; return `${R * Math.cos(a)},${R * Math.sin(a)}`; }).join(" ")}, g);
+  el("circle", {class: "dot", r: 5}, g);
+  const tx = el("text", {y: R + 16}, g); tx.textContent = n.t;
+  if (n.u) { const s = el("text", {y: R + 29, class: "sub"}, g); s.textContent = n.u; }
+  nodeEls[id] = g;
+}
+
+// ------------------------------------------------------------------ state + rendering
+const $ = id => document.getElementById(id);
+let prevNode = null, prevTools = [];
+const META = new Set(["load_skill", "load_profile", "confirm_action"]);
+
+function resetGraph() {
+  Object.values(nodeEls).forEach(g => g.setAttribute("class", "node"));
+  Object.values(edgeEls).forEach(({p, t}) => { p.setAttribute("class", "edge"); p.setAttribute("marker-end", "url(#arrow)"); t && t.setAttribute("class", "elabel"); });
+  prevNode = null;
+}
+function visit(node, fail, partial) {
+  if (!nodeEls[node]) return;
+  document.querySelectorAll(".edge.now").forEach(e => e.classList.remove("now"));
+  if (prevNode && nodeEls[prevNode]) { const c = nodeEls[prevNode].classList; nodeEls[prevNode].setAttribute("class", c.contains("fail") ? "node fail" : c.contains("partial") ? "node partial" : "node seen"); }
+  const e = prevNode && edgeEls[prevNode + ">" + node];
+  if (e) { e.p.setAttribute("class", "edge on now"); e.p.setAttribute("marker-end", "url(#arrowOn)"); e.t && e.t.setAttribute("class", "elabel on"); }
+  nodeEls[node].setAttribute("class", fail ? "node fail" : partial ? "node partial" : "node now");
+  prevNode = node;
+}
+function add(cls, text) {
+  const d = document.createElement("div"); d.className = "msg " + cls; d.textContent = text;
+  $("chat").appendChild(d); $("chat").scrollTop = $("chat").scrollHeight;
+}
+function logLine(kind, text) {
+  const d = document.createElement("div");
+  const k = kind === "fail" ? "fail" : kind === "partial" ? "partial" : "pass";
+  d.innerHTML = `<span class="tag ${k}">${k === "fail" ? "BLOCK" : k === "partial" ? "LIMIT" : "PASS"}</span>`;
+  d.appendChild(document.createTextNode(text));
+  $("log").appendChild(d); $("log").scrollTop = $("log").scrollHeight;
+}
+function tools(ev) {
+  const qlik = ev.visible.filter(t => !META.has(t));
+  $("count").textContent = qlik.length; $("total").textContent = ev.total; $("active").textContent = ev.active;
+  $("bar").style.width = (100 * qlik.length / ev.total) + "%";
+  $("chips").innerHTML = "";
+  for (const t of ev.visible) {
+    const c = document.createElement("span");
+    c.className = "chip" + (META.has(t) ? " meta" : prevTools.length && !prevTools.includes(t) ? " new" : "");
+    c.textContent = t.replace(/^qlik_/, ""); $("chips").appendChild(c);
+  }
+  prevTools = ev.visible;
+}
+const short = o => { const s = JSON.stringify(o); return s.length > 150 ? s.slice(0, 147) + "..." : s; };
+function result(ev) {
+  const d = ev.data || {};
+  if (d.preview) return add("res hold", `Held for confirmation: ${d.preview.tool} (token ${d.token})`);
+  if (d.loaded === false) return add("res bad", d.reason + (d.suggest_profile ? ` Suggested fallback: ${d.suggest_profile}.` : ""));
+  if (d.limitations) return add("res hold", `Loaded ${d.loaded} in reduced form · ${d.limitations}`);
+  if (d.error) return add("res bad", d.error);
+  if (d.loaded) return add("res", `Loaded ${d.loaded} · confidence: ${d.confidence}` + (d.instructions ? ` · ${d.instructions.split("\n").filter(Boolean).length} instructions + output shape` : ""));
+  if (d.executed) return add("res", `Executed ${d.executed} after confirmation`);
+  add("res", short(d));
+}
+
+function apply(ev) {
+  switch (ev.kind) {
+    case "scene":
+      resetGraph(); prevTools = [];
+      $("title").textContent = ev.n === "S" ? ev.title : `Scene ${ev.n} · ${ev.title}`;
+      $("who").innerHTML = `Conversation <span>· ${ev.user}</span>`;
+      $("chat").innerHTML = ""; $("log").innerHTML = ""; return;
+    case "tools": return tools(ev);
+    case "end": $("title").textContent = "Run complete"; return;
+  }
+  if (ev.node) visit(ev.node, ev.kind === "fail" || ev.ok === false, ev.kind === "partial");
+  if (ev.src === "server") return ev.text && logLine(ev.kind, ev.text);
+  switch (ev.kind) {
+    case "user": return add("user", ev.text);
+    case "decide": case "note": return add("model", "model: " + ev.text);
+    case "call": return add("call", `→ ${ev.tool}(${Object.entries(ev.args).map(([k, v]) => `${k}=${JSON.stringify(v).slice(0, 40)}`).join(", ")})`);
+    case "result": return result(ev);
+    case "answer": return add("answer" + (ev.ok ? "" : " bad"), ev.text);
+  }
+}
+
+// ------------------------------------------------------------------ player (live stream or replay)
+const DELAY = {scene: 3600, user: 2600, decide: 2200, note: 1800, call: 1600, result: 2000, answer: 4400, tools: 700, pass: 1500, fail: 2200, end: 0};
+const queue = []; let playing = true, speed = 1, live = location.protocol.startsWith("http"), timer = null, idx = 0;
+function tick() {
+  timer = null;
+  if (!playing || !queue.length) return;
+  const ev = queue.shift(); apply(ev);
+  timer = setTimeout(tick, (DELAY[ev.kind] ?? 700) * (live ? 0.9 : 1) / speed);
+}
+const kick = () => { if (!timer) tick(); };
+
+if (live) {
+  $("controls").innerHTML = `<span class="live">LIVE</span><span>streaming the real PoC run · every step is a real MCP call</span>`;
+  const es = new EventSource("/events");
+  es.onmessage = m => { queue.push(JSON.parse(m.data)); kick(); };
+} else if (window.TRACE && TRACE.length) {
+  const scenes = TRACE.map((e, i) => e.kind === "scene" ? [e.n, i] : null).filter(Boolean);
+  $("controls").innerHTML = `<span>Replay of the last run</span>
+    <button id="pp">Pause</button><button id="next">Next step</button><button id="restart">Restart</button>
+    <select id="speed"><option value=".4">0.4x</option><option value=".6">0.6x</option><option value="1" selected>1x</option><option value="1.6">1.6x</option><option value="2.5">2.5x</option></select>
+    ${scenes.map(([n, i]) => `<button data-i="${i}">${n === "S" ? "Story" : "Scene " + n}</button>`).join("")}`;
+  const load = from => { queue.length = 0; queue.push(...TRACE.slice(from)); clearTimeout(timer); timer = null; resetGraph(); kick(); };
+  $("pp").onclick = () => { playing = !playing; $("pp").textContent = playing ? "Pause" : "Play"; kick(); };
+  $("next").onclick = () => { if (queue.length) apply(queue.shift()); };
+  $("restart").onclick = () => load(0);
+  $("speed").onchange = e => speed = +e.target.value;
+  document.querySelectorAll("[data-i]").forEach(b => b.onclick = () => load(+b.dataset.i));
+  load(0);
+} else {
+  $("chat").innerHTML = `<div class="empty">No run saved yet. Run <code>python demo_client.py --view</code> for the live view,<br>or <code>python demo_client.py</code> and reopen this page to replay.</div>`;
+}
+</script>
+</body>
+</html>

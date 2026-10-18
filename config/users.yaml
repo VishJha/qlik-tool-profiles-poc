@@ -1,0 +1,17 @@
+# Mock stand-in for Qlik roles and space permissions.
+# In production these come from Qlik's existing permission system; nothing here is maintained per user.
+
+users:
+  analyst:
+    display: Tom (Business Analyst)
+    entitlements: [apps.read, apps.query, glossary.read, glossary.write, lineage.read]
+  developer:
+    display: Arjun (App Developer)
+    entitlements: [apps.read, apps.query, script.read, script.update, reload.run, sheets.create]
+  viewer:
+    display: Sam (Junior Viewer)
+    entitlements: [apps.read]
+  rachelle:
+    display: Rachelle (Business Analyst, glossary editor)
+    # Can read apps and edit the glossary; cannot run custom calculations, reloads or delete data products.
+    entitlements: [apps.read, glossary.read, glossary.write, lineage.read]
